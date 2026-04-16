@@ -12,55 +12,63 @@ export const signup = async (data: {
     password: string;
     name: string;
     phone: string;
-    role_id: string; // vẫn truyền id của role từ client
+    role_id: string;
     dob?: string | null;
 }) => {
-    // tạo user với Firebase Auth
-    const userRecord = await adminAuth.createUser({
-        email: data.email,
-        password: data.password,
-        displayName: data.name,
-        phoneNumber: data.phone,
-    });
 
-    // tham chiếu role_id dưới dạng DocumentReference
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+
     const roleRef = adminDb.collection("roles").doc(data.role_id);
 
-    // lưu profile vào Firestore
     const userData = {
-        role_id: roleRef, // 🔹 reference
+        email: data.email,                 // 🔥 THÊM
+        password: hashedPassword,          // 🔥 THÊM
         name: data.name,
         phone: data.phone,
+        role_id: roleRef,
         dob: data.dob ? new Date(data.dob) : null,
         created_at: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    await adminDb.collection("users").doc(userRecord.uid).set(userData);
+    const docRef = await adminDb.collection("users").add(userData);
 
-    return { id: userRecord.uid, ...userData };
+    return { id: docRef.id, ...userData, password: undefined };
 };
 // Login
 export const login = async (email: string, password: string) => {
-    const snapshot = await adminDb
-        .collection(COLLECTION)
-        .where("email", "==", email)
-        .get();
-    if (snapshot == null) {
-        return {
-            message: "no email"
-        }
+
+    if (!email || !password) {
+        throw new Error("Thiếu email hoặc password");
     }
 
-    if (snapshot.empty) throw new Error("User not found");
+    const snapshot = await adminDb
+        .collection("users")
+        .where("email", "==", email)
+        .get();
+
+    if (snapshot.empty) {
+        throw new Error("Email không tồn tại");
+    }
 
     const userDoc = snapshot.docs[0];
     const user = userDoc.data() as any;
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) throw new Error("Invalid password");
+    if (!user.password) {
+        throw new Error("User chưa có password");
+    }
 
-    // Remove password before returning
-    return { id: userDoc.id, ...user, password: undefined };
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+        throw new Error("Sai mật khẩu");
+    }
+
+    return {
+        id: userDoc.id,
+        email: user.email,
+        name: user.name,
+        phone: user.phone,
+    };
 };
 
 // Forgot password (demo: chỉ trả email đã tồn tại)
@@ -83,7 +91,7 @@ export const editProfile = async (
     if (data.name) updateData.name = data.name;
     if (data.phone) updateData.phone = data.phone;
     if (data.dob) updateData.dob = new Date(data.dob);
-
     await adminDb.collection(COLLECTION).doc(userId).update(updateData);
+
     return { id: userId, ...updateData };
 };
