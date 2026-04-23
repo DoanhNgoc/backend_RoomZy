@@ -22,10 +22,19 @@ router.post("/signup", async (req, res) => {
 router.post("/login", async (req, res) => {
     try {
         const { email, password } = req.body;
-        const data = await login(email, password);
-        res.json(data);
+
+        const user = await login(email, password);
+
+        res.status(200).json({
+            success: true,
+            message: "Đăng nhập thành công",
+            data: user,
+        });
     } catch (err: any) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({
+            success: false,
+            message: err.message,
+        });
     }
 });
 

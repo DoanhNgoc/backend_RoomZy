@@ -2,9 +2,11 @@ import { adminDb, adminAuth } from "../config/firebase.config";
 import admin from "firebase-admin"
 
 import * as bcrypt from "bcryptjs";
+import { FieldValue } from "firebase-admin/firestore";
 const COLLECTION = "users";
 
 // Signup
+
 
 
 export const signup = async (data: {
@@ -13,26 +15,42 @@ export const signup = async (data: {
     name: string;
     phone: string;
     role_id: string;
-    dob?: string | null;
 }) => {
+    // check email đã tồn tại trong auth
+    try {
+        await adminAuth.getUserByEmail(data.email);
+        throw new Error("Email đã tồn tại");
+    } catch (err: any) {
+        if (err.code !== "auth/user-not-found") {
+            throw err;
+        }
+    }
 
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    // tạo account trên Firebase Auth
+    const authUser = await adminAuth.createUser({
+        email: data.email,
+        password: data.password,
+        displayName: data.name,
+    });
 
-    const roleRef = adminDb.collection("roles").doc(data.role_id);
+    const roleRef = adminDb.doc(`roles${data.role_id}`);
 
     const userData = {
-        email: data.email,                 // 🔥 THÊM
-        password: hashedPassword,          // 🔥 THÊM
+        email: data.email,
         name: data.name,
         phone: data.phone,
         role_id: roleRef,
-        dob: data.dob ? new Date(data.dob) : null,
-        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        dob: null,
+        created_at: FieldValue.serverTimestamp(),
     };
 
-    const docRef = await adminDb.collection("users").add(userData);
+    // dùng uid làm document id
+    await adminDb.collection("users").doc(authUser.uid).set(userData);
 
-    return { id: docRef.id, ...userData, password: undefined };
+    return {
+        id: authUser.uid,
+        ...userData,
+    };
 };
 // Login
 export const login = async (email: string, password: string) => {
@@ -49,11 +67,21 @@ export const login = async (email: string, password: string) => {
     if (snapshot.empty) {
         throw new Error("Email không tồn tại");
     }
-
     const userDoc = snapshot.docs[0];
     const user = userDoc.data() as any;
-
+    let roleData = null;
+    if (user.role_id) {
+        const roleSnap = await user.role_id.get();
+        if (roleSnap.exists) {
+            const u = roleSnap.data();
+            roleData = {
+                id: roleSnap.id,
+                name: u?.name || null,
+            };
+        }
+    }
     if (!user.password) {
+
         throw new Error("User chưa có password");
     }
 
@@ -68,6 +96,7 @@ export const login = async (email: string, password: string) => {
         email: user.email,
         name: user.name,
         phone: user.phone,
+        role: roleData
     };
 };
 

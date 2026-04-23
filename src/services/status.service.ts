@@ -13,7 +13,6 @@ export const createStatus = async (data: {
     return data;
 };
 
-// GET ALL
 
 // GET ALL
 export const getAllStatus = async () => {
